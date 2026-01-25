@@ -10,7 +10,10 @@ piece_values = {
 }
 
 center = [chess.D4, chess.D5, chess.E4, chess.E5]
-extended_center = [chess.C3, chess.C4, chess.C5, chess.C6, chess.D3,chess.D6, chess.E3,chess.E6, chess.F3, chess.F4, chess.F5, chess.F6]
+extended_center = [
+    chess.C3, chess.C4, chess.C5, chess.C6, chess.D3, chess.D6,
+    chess.E3, chess.E6, chess.F3, chess.F4, chess.F5, chess.F6
+]
 
 def rules(board, move, botColor):
     score = 0
@@ -48,26 +51,26 @@ def rules(board, move, botColor):
             score += piece_values[captured.piece_type] * 10
             score += (piece_values[captured.piece_type] - piece_values[moved_piece.piece_type])
 
-    #hanging all
+    #dont let piece be captured
+    if board.is_attacked_by(not botColor, move.to_square):
+        attackers = len(board.attackers(not botColor, move.to_square))
+        defenders = len(board.attackers(botColor, move.to_square))
+        if attackers > defenders:
+            score -= piece_values[moved_piece.piece_type] * 10
+
+    #hanging
     for square in chess.SQUARES:
         p = board.piece_at(square)
         if p and p.color == botColor:
-            attackers = list(board.attackers(not botColor, square))
-            defenders = list(board.attackers(botColor, square))
-            if len(attackers) > len(defenders):
+            attackers = len(board.attackers(not botColor, square))
+            defenders = len(board.attackers(botColor, square))
+            if attackers > defenders:
                 score -= piece_values[p.piece_type] * 8
-    
-    #hanging moved
-    if board.is_attacked_by(not botColor, move.to_square):
-        defenders = len(board.attackers(botColor, move.to_square))
-        attackers = len(board.attackers(not botColor, move.to_square))
-        if attackers > defenders:
-            score -= piece_values[moved_piece.piece_type] * 10
 
     #check
     if board.is_check():
         score += 5
-    
+
     #open up pieces
     score += 0.05 * len(list(board.legal_moves))
 
@@ -77,7 +80,7 @@ def rules(board, move, botColor):
     elif move.to_square in extended_center:
         score += 0.2
 
-    #castling
+    #castle
     if board.is_castling(move):
         score += 5 if board.fullmove_number <= 10 else 2
 
@@ -92,43 +95,20 @@ def rules(board, move, botColor):
         score += 0.3 if move.to_square in center else 0.1
 
     #penalise repeated
-    repeat_penalty = 0
     recent_moves = board.move_stack[-7:-1]
     for past_move in recent_moves:
         if past_move.from_square == move.to_square and past_move.to_square == move.from_square:
-            repeat_penalty += 0.5
-    score -= repeat_penalty
+            score -= 0.5
 
-    #dont let opp capture
-    for reply in board.legal_moves:
-        if board.is_capture(reply):
-            captured = board.piece_at(reply.to_square)
-            attacker = board.piece_at(reply.from_square)
-            if captured and attacker:
-                loss = piece_values[captured.piece_type] - piece_values[attacker.piece_type]
-                if loss > 0:
-                    score -= loss * 6
-    
     #king safe
-    if board.fullmove_number <= 15:
-        king_sq = board.king(botColor)
-        for sq in board.attackers(not botColor, king_sq):
-            piece = board.piece_at(sq)
-            if piece and piece.piece_type in [chess.ROOK, chess.BISHOP, chess.QUEEN]:
-                score -= 5
+    king_sq = board.king(botColor)
+    attackers_on_king = len(board.attackers(not botColor, king_sq))
+    if attackers_on_king > 0:
+        score -= attackers_on_king * 3
 
-    if board.fullmove_number <= 12:
-        king_sq = board.king(botColor)
-        attackers = len(board.attackers(not botColor, king_sq))
-        if attackers > 0:
-            score -= attackers * 3
-
-    #dont let opp check
-    for reply in board.legal_moves:
-        board.push(reply)
-        if board.is_check():
-            score -= 4
-        board.pop()
+    #dont let opp pin
+    if board.is_pinned(botColor, move.to_square):
+        score -= piece_values[moved_piece.piece_type] * 4
 
     #dont let opp develop
     opp_dev = 0
@@ -140,8 +120,4 @@ def rules(board, move, botColor):
                 opp_dev += 1
     score -= opp_dev * 1.5
 
-    #dont let opp pin
-    if board.is_pinned(botColor, move.to_square):
-        score -= piece_values[moved_piece.piece_type] * 4
-    
     return score
